@@ -139,9 +139,10 @@ module.exports = async function (req, res) {
             return titlePendekPegawai === unitPilihan;
           })
           .map(item => ({
-            id: String(item.id || item.title), // Paksa jadi string dan buang properti lain
-            title: String(item.title || "Tanpa Nama")
-          }));
+  // Kita kemas NIP dan Nama dipisahkan tanda pipe |
+  id: `${item.id}|${item.title}`, 
+  title: String(item.title || "Tanpa Nama")
+}));
 
         responsePayload = {
           version: flowVersion,
