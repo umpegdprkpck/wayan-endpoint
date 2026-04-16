@@ -158,23 +158,6 @@ module.exports = async function (req, res) {
         };
       }
     }
-    // LAYAR 2: FILTER PEGAWAI
-    else if (requestData.action === 'data_exchange') {
-      const isianForm = requestData.data || {};
-      
-      if (isianForm.tahap === 'filter_pegawai') {
-        const fetchResponse = await fetch(GAS_URL);
-        const semuaData = await fetchResponse.json();
-        const unitPilihan = isianForm.unit_dipilih;
-        const pegawaiTersaring = semuaData.filter(item => item.unit_kerja === unitPilihan);
-
-        responsePayload = {
-          version: flowVersion,
-          screen: 'SCREEN_AKTIVITAS',
-          data: { daftar_pegawai: pegawaiTersaring }
-        };
-      }
-    }
 
     // --- BUNGKUS BALASAN KE META ---
     const flippedIvBuffer = Buffer.alloc(initialVectorBuffer.length);
