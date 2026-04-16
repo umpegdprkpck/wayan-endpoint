@@ -131,33 +131,35 @@ module.exports = async function (req, res) {
         const semuaData = await fetchResponse.json();
         
         // Ini adalah nama Bidang pendek yang baru saja diklik/dipilih oleh user
-        const unitPilihan = isianForm.unit_dipilih; 
+        // Saring pegawai khusus untuk unit yang dipilih saja
+const unitPilihan = isianForm.unit_dipilih;
 
-        // Saring pegawai
-        const pegawaiTersaring = semuaData.filter(item => {
-          if (!item.unit_kerja) return false;
-
-          // Kita harus memotong unit_kerja pegawai ini juga agar bisa dicocokkan
-          let titlePendekPegawai = item.unit_kerja;
-          const bagianTeks = item.unit_kerja.split('-');
-          if (bagianTeks.length >= 2) {
-            titlePendekPegawai = bagianTeks[1].trim();
-          }
-          if (titlePendekPegawai.length > 80) {
-            titlePendekPegawai = titlePendekPegawai.substring(0, 77) + "...";
-          }
-
-          // Loloskan pegawai jika Bidang-nya cocok dengan pilihan user
-          return titlePendekPegawai === unitPilihan;
-        });
-
-        responsePayload = {
-          version: flowVersion,
-          screen: 'SCREEN_AKTIVITAS',
-          data: { daftar_pegawai: pegawaiTersaring }
-        };
-      }
+const pegawaiTersaring = semuaData
+  .filter(item => {
+    if (!item.unit_kerja) return false;
+    let titlePendekPegawai = item.unit_kerja;
+    const bagianTeks = item.unit_kerja.split('-');
+    if (bagianTeks.length >= 2) {
+      titlePendekPegawai = bagianTeks[1].trim();
     }
+    if (titlePendekPegawai.length > 80) {
+      titlePendekPegawai = titlePendekPegawai.substring(0, 77) + "...";
+    }
+    return titlePendekPegawai === unitPilihan;
+  })
+  .map(item => ({
+    // BAGIAN PENTING: Hanya ambil id dan title, buang unit_kerja
+    id: item.id,
+    title: item.title 
+  }));
+
+responsePayload = {
+  version: flowVersion,
+  screen: 'SCREEN_AKTIVITAS',
+  data: {
+    daftar_pegawai: pegawaiTersaring
+  }
+};
 
     // --- BUNGKUS BALASAN KE META ---
     const flippedIvBuffer = Buffer.alloc(initialVectorBuffer.length);
