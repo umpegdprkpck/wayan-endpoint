@@ -33,7 +33,7 @@ IesoUQKBgQC1HdH8IiQofcoldP9iNZ148BcPLWZ0urkDDPSF8Z6ZfsFLFu5subTR
 const GAS_URL = "https://script.google.com/macros/s/AKfycbw6mm9T6R9wc_cfu7AJoQF-Jhi_2Z6_2FkCxVBnsUnGcBBhIbpD-tjMSupVCSIhF7uk/exec";
 
 // --- LOGIKA UTAMA SERVERLESS VERCEL ---
-export default async function handler(req, res) {
+module.exports = async function(req, res) {
   // Meta hanya mengirim request POST
   if (req.method !== 'POST') {
     return res.status(405).send('Method Not Allowed');
