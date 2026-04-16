@@ -64,7 +64,6 @@ module.exports = async function (req, res) {
     const authTag = flowDataBuffer.subarray(-16);
     const ciphertext = flowDataBuffer.subarray(0, -16);
 
-    // KUNCI PERUBAHAN ADA DI BARIS INI: aes-256-gcm diubah jadi aes-128-gcm
     const decipher = crypto.createDecipheriv('aes-128-gcm', decryptedAesKey, initialVectorBuffer);
     decipher.setAuthTag(authTag);
 
@@ -74,14 +73,21 @@ module.exports = async function (req, res) {
 
     // --- LOGIKA ENDPOINT WAYAN ---
     let responsePayload = {};
+    
+    // Meta v3.0 WAJIB memiliki label version saat membalas
+    const flowVersion = requestData.version || "3.0"; 
 
     if (requestData.action === 'ping') {
-      responsePayload = { data: { status: 'active' } };
+      responsePayload = {
+        version: flowVersion,
+        data: { status: 'active' }
+      };
     } else if (requestData.action === 'data_exchange') {
       const fetchResponse = await fetch(GAS_URL);
       const daftarPegawai = await fetchResponse.json();
 
       responsePayload = {
+        version: flowVersion,
         screen: 'SCREEN_AKTIVITAS',
         data: {
           daftar_pegawai: Array.isArray(daftarPegawai) ? daftarPegawai : []
@@ -89,15 +95,18 @@ module.exports = async function (req, res) {
       };
     }
 
-    // --- BUNGKUS BALASAN KE META MENGGUNAKAN AES-128-GCM ---
+    // --- BUNGKUS BALASAN KE META ---
+    // Membalikkan (flip) IV menggunakan metode XOR agar 100% stabil di Node.js
     const flippedIv = Buffer.alloc(12);
     for (let i = 0; i < initialVectorBuffer.length; i++) {
-      flippedIv[i] = ~initialVectorBuffer[i];
+      flippedIv[i] = initialVectorBuffer[i] ^ 0xFF; 
     }
 
-    // KUNCI PERUBAHAN ADA DI BARIS INI JUGA
+    // Memastikan format teks menjadi UTF-8 bersih sebelum digembok
+    const plaintextBuffer = Buffer.from(JSON.stringify(responsePayload), 'utf-8');
+
     const cipher = crypto.createCipheriv('aes-128-gcm', decryptedAesKey, flippedIv);
-    let encryptedResponse = cipher.update(JSON.stringify(responsePayload));
+    let encryptedResponse = cipher.update(plaintextBuffer);
     encryptedResponse = Buffer.concat([encryptedResponse, cipher.final()]);
     const responseAuthTag = cipher.getAuthTag();
 
