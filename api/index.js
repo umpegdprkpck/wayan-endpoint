@@ -119,30 +119,51 @@ module.exports = async function (req, res) {
     else if (requestData.action === 'data_exchange') {
       const isianForm = requestData.data || {};
       
+      // LOGIKA FILTER PEGAWAI (Layar 1 ke Layar 2)
       if (isianForm.tahap === 'filter_pegawai') {
         const fetchResponse = await fetch(GAS_URL);
         const semuaData = await fetchResponse.json();
-        
         const unitPilihan = isianForm.unit_dipilih; 
 
         const pegawaiTersaring = semuaData
           .filter(item => {
             if (!item.unit_kerja) return false;
-            let titlePendekPegawai = item.unit_kerja;
-            const bagianTeks = item.unit_kerja.split('-');
-            if (bagianTeks.length >= 2) {
-              titlePendekPegawai = bagianTeks[1].trim();
-            }
-            if (titlePendekPegawai.length > 80) {
-              titlePendekPegawai = titlePendekPegawai.substring(0, 77) + "...";
-            }
-            return titlePendekPegawai === unitPilihan;
+            let titlePendek = item.unit_kerja.split('-')[1]?.trim() || item.unit_kerja;
+            return titlePendek === unitPilihan;
           })
-          .map(item => ({
-  // Kita kemas NIP dan Nama dipisahkan tanda pipe |
-  id: `${item.id}|${item.title}`, 
-  title: String(item.title || "Tanpa Nama")
-}));
+          .map(item => ({ id: String(item.id), title: String(item.title) }));
+
+        responsePayload = {
+          version: flowVersion,
+          screen: 'SCREEN_AKTIVITAS',
+          data: { daftar_pegawai: pegawaiTersaring }
+        };
+      } 
+      
+      // LOGIKA SIMPAN LAPORAN (Layar 2 ke Selesai)
+      else if (isianForm.tahap === 'simpan_laporan') {
+        // Kirim data ke GAS menggunakan metode POST
+        await fetch(GAS_URL, {
+          method: 'POST',
+          body: JSON.stringify(isianForm),
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        // Balas ke WhatsApp bahwa proses selesai
+        responsePayload = {
+          version: flowVersion,
+          screen: 'SUCCESS', // Menggunakan layar sukses bawaan Meta
+          data: {
+            extension_message_response: {
+              params: {
+                status: "Laporan Berhasil Disimpan",
+                detail: "Terima kasih, data aktivitas Anda telah tercatat di sistem."
+              }
+            }
+          }
+        };
+      }
+    }
 
         responsePayload = {
           version: flowVersion,
