@@ -80,37 +80,41 @@ module.exports = async function (req, res) {
     if (requestData.action === 'ping') {
       responsePayload = { data: { status: 'active' } };
     } 
-    // LAYAR 1: INIT
+    // LAYAR 1: Saat Form Pertama Kali Dibuka (INIT)
     else if (requestData.action === 'INIT') {
-      console.log("X-RAY: Mulai menarik data dari GAS...");
       const fetchResponse = await fetch(GAS_URL);
-      const textData = await fetchResponse.text();
-      
-      let semuaData;
-      try {
-        semuaData = JSON.parse(textData);
-      } catch (e) {
-        console.error("X-RAY ERROR: GAS tidak membalas JSON. Balasan GAS:", textData.substring(0, 150));
-        throw new Error("Gagal parsing data Google Sheets.");
-      }
+      const semuaData = await fetchResponse.json();
 
-      if (!Array.isArray(semuaData)) {
-        throw new Error("Data dari GAS bukan format Array/Daftar.");
-      }
+      // Kita gunakan Map untuk menyaring nama yang kembar SETELAH dipotong
+      const petaUnit = new Map();
 
-      const unitUnik = [...new Set(semuaData.map(item => item.unit_kerja))].filter(Boolean);
-      
-      const daftarUnitArray = unitUnik.map(unit => {
-        let titlePendek = unit;
-        const bagianTeks = unit.split('-');
+      semuaData.forEach(item => {
+        if (!item.unit_kerja) return;
+
+        let titlePendek = item.unit_kerja;
+        
+        // Memotong teks berdasarkan tanda hubung '-'
+        const bagianTeks = item.unit_kerja.split('-');
         if (bagianTeks.length >= 2) {
           titlePendek = bagianTeks[1].trim(); 
         }
+        
+        // Amankan jika masih > 80 karakter
         if (titlePendek.length > 80) {
           titlePendek = titlePendek.substring(0, 77) + "...";
         }
-        return { id: unit, title: titlePendek };
+
+        // Masukkan ke dalam peta. Jika nama sudah ada, dia tidak akan diduplikat.
+        if (!petaUnit.has(titlePendek)) {
+          petaUnit.set(titlePendek, {
+            id: titlePendek, // ID SEKARANG MENGGUNAKAN TEKS PENDEK
+            title: titlePendek
+          });
+        }
       });
+
+      // Ubah kembali peta menjadi format Array yang disukai Meta
+      const daftarUnitArray = Array.from(petaUnit.values());
 
       responsePayload = {
         version: flowVersion,
@@ -118,6 +122,42 @@ module.exports = async function (req, res) {
         data: { daftar_unit: daftarUnitArray }
       };
     } 
+    // LAYAR 2: FILTER PEGAWAI
+    else if (requestData.action === 'data_exchange') {
+      const isianForm = requestData.data || {};
+      
+      if (isianForm.tahap === 'filter_pegawai') {
+        const fetchResponse = await fetch(GAS_URL);
+        const semuaData = await fetchResponse.json();
+        
+        // Ini adalah nama Bidang pendek yang baru saja diklik/dipilih oleh user
+        const unitPilihan = isianForm.unit_dipilih; 
+
+        // Saring pegawai
+        const pegawaiTersaring = semuaData.filter(item => {
+          if (!item.unit_kerja) return false;
+
+          // Kita harus memotong unit_kerja pegawai ini juga agar bisa dicocokkan
+          let titlePendekPegawai = item.unit_kerja;
+          const bagianTeks = item.unit_kerja.split('-');
+          if (bagianTeks.length >= 2) {
+            titlePendekPegawai = bagianTeks[1].trim();
+          }
+          if (titlePendekPegawai.length > 80) {
+            titlePendekPegawai = titlePendekPegawai.substring(0, 77) + "...";
+          }
+
+          // Loloskan pegawai jika Bidang-nya cocok dengan pilihan user
+          return titlePendekPegawai === unitPilihan;
+        });
+
+        responsePayload = {
+          version: flowVersion,
+          screen: 'SCREEN_AKTIVITAS',
+          data: { daftar_pegawai: pegawaiTersaring }
+        };
+      }
+    }
     // LAYAR 2: FILTER PEGAWAI
     else if (requestData.action === 'data_exchange') {
       const isianForm = requestData.data || {};
