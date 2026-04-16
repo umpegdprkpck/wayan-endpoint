@@ -1,7 +1,8 @@
 const crypto = require('crypto');
 
 // 1. MASUKKAN PRIVATE KEY ANDA
-const PRIVATE_KEY = `-----BEGIN RSA PRIVATE KEY-----
+// Pastikan tidak ada tulisan -----BEGIN... yang ganda/dobel
+const RAW_PRIVATE_KEY = `-----BEGIN RSA PRIVATE KEY-----
 MIIEpAIBAAKCAQEA0Bo7QbU0fR73VFfUZSjKaATHy6rvmV3jvvuhWnvRDnL2iWMF
 sfitdSENXJP/1uJvjce2Q+RzUVFfDnpO0DjRl0mTRCQHji4hyJP6NmdiXH8xQAQJ
 Wg3136y35UNuXW2WMNko6ajC/Nud74W1GepdMvCHQPOzk6kV21OyWyd7FWsjfys9
@@ -29,20 +30,27 @@ IesoUQKBgQC1HdH8IiQofcoldP9iNZ148BcPLWZ0urkDDPSF8Z6ZfsFLFu5subTR
 /saLDDwIyMLrBmZ0uv+IDMvUiGQuPpmPhqAAzpbRHMKd/5SpPgAlwQ==
 -----END RSA PRIVATE KEY-----`;
 
+const PRIVATE_KEY = RAW_PRIVATE_KEY.trim();
+
 // 2. MASUKKAN URL WEB APP GOOGLE APPS SCRIPT ANDA
 const GAS_URL = "https://script.google.com/macros/s/AKfycbw6mm9T6R9wc_cfu7AJoQF-Jhi_2Z6_2FkCxVBnsUnGcBBhIbpD-tjMSupVCSIhF7uk/exec";
 
-// --- LOGIKA UTAMA SERVERLESS VERCEL ---
-module.exports = async function(req, res) {
-  // Meta hanya mengirim request POST
+module.exports = async function (req, res) {
+  // Hanya menerima metode POST dari Meta
   if (req.method !== 'POST') {
     return res.status(405).send('Method Not Allowed');
   }
 
   try {
-    const { encrypted_aes_key, encrypted_flow_data, initial_vector } = req.body;
+    // Memaksa Vercel untuk selalu membaca dalam format Object (JSON)
+    let bodyData = req.body;
+    if (typeof bodyData === 'string') {
+      bodyData = JSON.parse(bodyData);
+    }
 
-    // --- DEKRIPSI KUNCI (MENDUKUNG SHA-256 SECARA NATIVE) ---
+    const { encrypted_aes_key, encrypted_flow_data, initial_vector } = bodyData;
+
+    // --- DEKRIPSI KUNCI AES ---
     const decryptedAesKey = crypto.privateDecrypt(
       {
         key: PRIVATE_KEY,
@@ -51,6 +59,14 @@ module.exports = async function(req, res) {
       },
       Buffer.from(encrypted_aes_key, 'base64')
     );
+
+    // X-RAY LOG: Melacak ukuran byte dari Meta
+    console.log("X-RAY -> Panjang Kunci AES dari Meta:", decryptedAesKey.length, "bytes");
+
+    if (decryptedAesKey.length !== 32) {
+      console.error("GAGAL: Meta tidak mengirimkan kunci 32 byte!");
+      return res.status(500).send('Invalid Key Length');
+    }
 
     // --- DEKRIPSI PESAN META ---
     const flowDataBuffer = Buffer.from(encrypted_flow_data, 'base64');
@@ -64,6 +80,10 @@ module.exports = async function(req, res) {
 
     let decryptedData = decipher.update(ciphertext, undefined, 'utf8');
     decryptedData += decipher.final('utf8');
+    
+    // X-RAY LOG: Melihat apa isi pesan Meta
+    console.log("X-RAY -> Isi Pesan:", decryptedData);
+    
     const requestData = JSON.parse(decryptedData);
 
     // --- LOGIKA ENDPOINT WAYAN ---
@@ -72,7 +92,6 @@ module.exports = async function(req, res) {
     if (requestData.action === 'ping') {
       responsePayload = { data: { status: 'active' } };
     } else if (requestData.action === 'data_exchange') {
-      // Ambil data nama pegawai dari Google Sheets
       const fetchResponse = await fetch(GAS_URL);
       const daftarPegawai = await fetchResponse.json();
 
@@ -97,12 +116,12 @@ module.exports = async function(req, res) {
 
     const finalCiphertext = Buffer.concat([encryptedResponse, responseAuthTag]).toString('base64');
 
-    // Kirim balasan ke Meta
     res.setHeader('Content-Type', 'text/plain');
     return res.status(200).send(finalCiphertext);
 
   } catch (error) {
-    console.error("Error Detail:", error);
+    // X-RAY LOG: Menangkap Error dengan sangat rinci
+    console.error("X-RAY ERROR ->", error.message);
     return res.status(500).send('Internal Server Error');
   }
-}
+};
