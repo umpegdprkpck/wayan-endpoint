@@ -1,7 +1,6 @@
 const crypto = require('crypto');
 
 // 1. MASUKKAN PRIVATE KEY ANDA
-// Pastikan tidak ada tulisan -----BEGIN... yang ganda/dobel
 const RAW_PRIVATE_KEY = `-----BEGIN RSA PRIVATE KEY-----
 MIIEpAIBAAKCAQEA0Bo7QbU0fR73VFfUZSjKaATHy6rvmV3jvvuhWnvRDnL2iWMF
 sfitdSENXJP/1uJvjce2Q+RzUVFfDnpO0DjRl0mTRCQHji4hyJP6NmdiXH8xQAQJ
@@ -36,13 +35,11 @@ const PRIVATE_KEY = RAW_PRIVATE_KEY.trim();
 const GAS_URL = "https://script.google.com/macros/s/AKfycbw6mm9T6R9wc_cfu7AJoQF-Jhi_2Z6_2FkCxVBnsUnGcBBhIbpD-tjMSupVCSIhF7uk/exec";
 
 module.exports = async function (req, res) {
-  // Hanya menerima metode POST dari Meta
   if (req.method !== 'POST') {
     return res.status(405).send('Method Not Allowed');
   }
 
   try {
-    // Memaksa Vercel untuk selalu membaca dalam format Object (JSON)
     let bodyData = req.body;
     if (typeof bodyData === 'string') {
       bodyData = JSON.parse(bodyData);
@@ -50,7 +47,7 @@ module.exports = async function (req, res) {
 
     const { encrypted_aes_key, encrypted_flow_data, initial_vector } = bodyData;
 
-    // --- DEKRIPSI KUNCI AES ---
+    // --- BUKA KUNCI DARI META ---
     const decryptedAesKey = crypto.privateDecrypt(
       {
         key: PRIVATE_KEY,
@@ -60,30 +57,19 @@ module.exports = async function (req, res) {
       Buffer.from(encrypted_aes_key, 'base64')
     );
 
-    // X-RAY LOG: Melacak ukuran byte dari Meta
-    console.log("X-RAY -> Panjang Kunci AES dari Meta:", decryptedAesKey.length, "bytes");
-
-    if (decryptedAesKey.length !== 32) {
-      console.error("GAGAL: Meta tidak mengirimkan kunci 32 byte!");
-      return res.status(500).send('Invalid Key Length');
-    }
-
-    // --- DEKRIPSI PESAN META ---
+    // --- BACA PESAN MENGGUNAKAN AES-128-GCM ---
     const flowDataBuffer = Buffer.from(encrypted_flow_data, 'base64');
     const initialVectorBuffer = Buffer.from(initial_vector, 'base64');
 
     const authTag = flowDataBuffer.subarray(-16);
     const ciphertext = flowDataBuffer.subarray(0, -16);
 
-    const decipher = crypto.createDecipheriv('aes-256-gcm', decryptedAesKey, initialVectorBuffer);
+    // KUNCI PERUBAHAN ADA DI BARIS INI: aes-256-gcm diubah jadi aes-128-gcm
+    const decipher = crypto.createDecipheriv('aes-128-gcm', decryptedAesKey, initialVectorBuffer);
     decipher.setAuthTag(authTag);
 
     let decryptedData = decipher.update(ciphertext, undefined, 'utf8');
     decryptedData += decipher.final('utf8');
-    
-    // X-RAY LOG: Melihat apa isi pesan Meta
-    console.log("X-RAY -> Isi Pesan:", decryptedData);
-    
     const requestData = JSON.parse(decryptedData);
 
     // --- LOGIKA ENDPOINT WAYAN ---
@@ -103,13 +89,14 @@ module.exports = async function (req, res) {
       };
     }
 
-    // --- ENKRIPSI BALASAN KE META ---
+    // --- BUNGKUS BALASAN KE META MENGGUNAKAN AES-128-GCM ---
     const flippedIv = Buffer.alloc(12);
     for (let i = 0; i < initialVectorBuffer.length; i++) {
       flippedIv[i] = ~initialVectorBuffer[i];
     }
 
-    const cipher = crypto.createCipheriv('aes-256-gcm', decryptedAesKey, flippedIv);
+    // KUNCI PERUBAHAN ADA DI BARIS INI JUGA
+    const cipher = crypto.createCipheriv('aes-128-gcm', decryptedAesKey, flippedIv);
     let encryptedResponse = cipher.update(JSON.stringify(responsePayload));
     encryptedResponse = Buffer.concat([encryptedResponse, cipher.final()]);
     const responseAuthTag = cipher.getAuthTag();
@@ -120,8 +107,7 @@ module.exports = async function (req, res) {
     return res.status(200).send(finalCiphertext);
 
   } catch (error) {
-    // X-RAY LOG: Menangkap Error dengan sangat rinci
-    console.error("X-RAY ERROR ->", error.message);
+    console.error("Error Detail:", error.message);
     return res.status(500).send('Internal Server Error');
   }
 };
