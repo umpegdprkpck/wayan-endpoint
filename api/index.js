@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 
-// 1. MASUKKAN PRIVATE KEY ANDA
+// 1. PRIVATE KEY (Otomatis terisi)
 const RAW_PRIVATE_KEY = `-----BEGIN RSA PRIVATE KEY-----
 MIIEpAIBAAKCAQEA0Bo7QbU0fR73VFfUZSjKaATHy6rvmV3jvvuhWnvRDnL2iWMF
 sfitdSENXJP/1uJvjce2Q+RzUVFfDnpO0DjRl0mTRCQHji4hyJP6NmdiXH8xQAQJ
@@ -31,95 +31,72 @@ IesoUQKBgQC1HdH8IiQofcoldP9iNZ148BcPLWZ0urkDDPSF8Z6ZfsFLFu5subTR
 
 const PRIVATE_KEY = RAW_PRIVATE_KEY.trim();
 
-// 2. MASUKKAN URL WEB APP GOOGLE APPS SCRIPT ANDA
+// 2. URL GOOGLE APPS SCRIPT (Otomatis terisi)
 const GAS_URL = "https://script.google.com/macros/s/AKfycbw6mm9T6R9wc_cfu7AJoQF-Jhi_2Z6_2FkCxVBnsUnGcBBhIbpD-tjMSupVCSIhF7uk/exec";
 
 module.exports = async function (req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).send('Method Not Allowed');
-  }
+  if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
 
   try {
     let bodyData = req.body;
-    if (typeof bodyData === 'string') {
-      bodyData = JSON.parse(bodyData);
-    }
-
+    if (typeof bodyData === 'string') bodyData = JSON.parse(bodyData);
+    
     const { encrypted_aes_key, encrypted_flow_data, initial_vector } = bodyData;
 
-    // --- BUKA KUNCI DARI META ---
+    // --- DEKRIPSI KUNCI META ---
     const decryptedAesKey = crypto.privateDecrypt(
-      {
-        key: PRIVATE_KEY,
-        padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
-        oaepHash: 'sha256',
-      },
+      { key: PRIVATE_KEY, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256' },
       Buffer.from(encrypted_aes_key, 'base64')
     );
 
     const aesAlgorithm = decryptedAesKey.length === 32 ? 'aes-256-gcm' : 'aes-128-gcm';
-
-    // --- BACA PESAN META ---
     const flowDataBuffer = Buffer.from(encrypted_flow_data, 'base64');
     const initialVectorBuffer = Buffer.from(initial_vector, 'base64');
-
     const authTag = flowDataBuffer.subarray(-16);
     const ciphertext = flowDataBuffer.subarray(0, -16);
 
     const decipher = crypto.createDecipheriv(aesAlgorithm, decryptedAesKey, initialVectorBuffer);
     decipher.setAuthTag(authTag);
-
     let decryptedData = decipher.update(ciphertext, undefined, 'utf8');
     decryptedData += decipher.final('utf8');
     const requestData = JSON.parse(decryptedData);
 
-    // --- LOGIKA ENDPOINT WAYAN ---
     let responsePayload = {};
     const flowVersion = requestData.version || "3.0";
 
+    // --- LOGIKA APLIKASI WAYAN ---
     if (requestData.action === 'ping') {
       responsePayload = { data: { status: 'active' } };
     } 
-    // LAYAR 1: Saat Form Pertama Kali Dibuka (INIT)
+    // TAHAP 1: FORM DIBUKA (Minta Unit Kerja)
     else if (requestData.action === 'INIT') {
       const fetchResponse = await fetch(GAS_URL);
       const semuaData = await fetchResponse.json();
-
       const petaUnit = new Map();
 
       semuaData.forEach(item => {
         if (!item.unit_kerja) return;
-
         let titlePendek = item.unit_kerja;
         const bagianTeks = item.unit_kerja.split('-');
-        if (bagianTeks.length >= 2) {
-          titlePendek = bagianTeks[1].trim(); 
-        }
-        if (titlePendek.length > 80) {
-          titlePendek = titlePendek.substring(0, 77) + "...";
-        }
+        if (bagianTeks.length >= 2) titlePendek = bagianTeks[1].trim(); 
+        if (titlePendek.length > 80) titlePendek = titlePendek.substring(0, 77) + "...";
 
         if (!petaUnit.has(titlePendek)) {
-          petaUnit.set(titlePendek, {
-            id: String(titlePendek), // Paksa jadi String
-            title: String(titlePendek) // Paksa jadi String
-          });
+          petaUnit.set(titlePendek, { id: String(titlePendek), title: String(titlePendek) });
         }
       });
 
-      const daftarUnitArray = Array.from(petaUnit.values());
-
-      responsePayload = {
-        version: flowVersion,
-        screen: 'SCREEN_PILIH_UNIT',
-        data: { daftar_unit: daftarUnitArray }
+      responsePayload = { 
+        version: flowVersion, 
+        screen: 'SCREEN_PILIH_UNIT', 
+        data: { daftar_unit: Array.from(petaUnit.values()) } 
       };
     } 
-    // LAYAR 2: Saat Tombol Lanjut Ditekan
+    // TAHAP 2 & 3: FILTER DATA ATAU SIMPAN DATA
     else if (requestData.action === 'data_exchange') {
       const isianForm = requestData.data || {};
       
-      // LOGIKA FILTER PEGAWAI (Layar 1 ke Layar 2)
+      // Tahap 2: Pengguna Baru Saja Memilih Unit Kerja -> Kirim Daftar Nama
       if (isianForm.tahap === 'filter_pegawai') {
         const fetchResponse = await fetch(GAS_URL);
         const semuaData = await fetchResponse.json();
@@ -128,42 +105,45 @@ module.exports = async function (req, res) {
         const pegawaiTersaring = semuaData
           .filter(item => {
             if (!item.unit_kerja) return false;
-            let titlePendek = item.unit_kerja.split('-')[1]?.trim() || item.unit_kerja;
-            return titlePendek === unitPilihan;
+            let titlePendekPegawai = item.unit_kerja;
+            const bagianTeks = item.unit_kerja.split('-');
+            if (bagianTeks.length >= 2) titlePendekPegawai = bagianTeks[1].trim();
+            if (titlePendekPegawai.length > 80) titlePendekPegawai = titlePendekPegawai.substring(0, 77) + "...";
+            return titlePendekPegawai === unitPilihan;
           })
           .map(item => ({
-  // Wajah Belakang (Disembunyikan): Mengirim NIP dan Nama
-  id: `${item.id}|${item.title}`, 
-  
-  // Wajah Depan (Ditampilkan di HP): HANYA memunculkan Nama saja
-  title: String(item.title || "Tanpa Nama") 
-}));
+            // MENGIRIM NIP DAN NAMA KE BELAKANG LAYAR
+            id: `${item.id || item.title}|${item.title || "Tanpa Nama"}`, 
+            // MENAMPILKAN NAMA SAJA DI LAYAR HP
+            title: String(item.title || "Tanpa Nama")
+          }));
 
-        responsePayload = {
-          version: flowVersion,
-          screen: 'SCREEN_AKTIVITAS',
-          data: { daftar_pegawai: pegawaiTersaring }
+        responsePayload = { 
+          version: flowVersion, 
+          screen: 'SCREEN_AKTIVITAS', 
+          data: { daftar_pegawai: pegawaiTersaring } 
         };
-      } 
-      
-      // LOGIKA SIMPAN LAPORAN (Layar 2 ke Selesai)
+      }
+      // Tahap 3: Pengguna Menekan Tombol "Kirim Laporan" -> Tulis ke Sheets
       else if (isianForm.tahap === 'simpan_laporan') {
-        // Kirim data ke GAS menggunakan metode POST
+        // Meneruskan data ke Google Sheets
         await fetch(GAS_URL, {
           method: 'POST',
           body: JSON.stringify(isianForm),
-          headers: { 'Content-Type': 'application/json' }
+          headers: { 'Content-Type': 'application/json' },
+          redirect: 'follow' // Mengamankan jika Google meminta pengalihan (redirect 302)
         });
 
-        // Balas ke WhatsApp bahwa proses selesai
+        // Menampilkan Layar Sukses Bawaan WhatsApp
         responsePayload = {
           version: flowVersion,
-          screen: 'SUCCESS', // Menggunakan layar sukses bawaan Meta
+          screen: 'SUCCESS',
           data: {
             extension_message_response: {
               params: {
-                status: "Laporan Berhasil Disimpan",
-                detail: "Terima kasih, data aktivitas Anda telah tercatat di sistem."
+                flow_token: requestData.flow_token,
+                status: "Berhasil",
+                detail: "Laporan aktivitas Anda berhasil disimpan ke sistem."
               }
             }
           }
@@ -171,26 +151,16 @@ module.exports = async function (req, res) {
       }
     }
 
-        responsePayload = {
-          version: flowVersion,
-          screen: 'SCREEN_AKTIVITAS',
-          data: { daftar_pegawai: pegawaiTersaring }
-        };
-      }
-    }
-
-    // --- BUNGKUS BALASAN KE META ---
+    // --- ENKRIPSI BALASAN KE META ---
     const flippedIvBuffer = Buffer.alloc(initialVectorBuffer.length);
     for (let i = 0; i < initialVectorBuffer.length; i++) {
       flippedIvBuffer[i] = ~initialVectorBuffer[i] & 0xFF;
     }
 
     const cipher = crypto.createCipheriv(aesAlgorithm, decryptedAesKey, flippedIvBuffer);
-    
     let encryptedResponse = cipher.update(JSON.stringify(responsePayload), 'utf-8');
     encryptedResponse = Buffer.concat([encryptedResponse, cipher.final()]);
     const responseAuthTag = cipher.getAuthTag();
-
     const finalCiphertext = Buffer.concat([encryptedResponse, responseAuthTag]).toString('base64');
 
     res.setHeader('Content-Type', 'text/plain');
