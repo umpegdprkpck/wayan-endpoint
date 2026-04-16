@@ -83,7 +83,7 @@ module.exports = async function (req, res) {
       responsePayload = {
         data: { status: 'active' }
       };
-    } else if (requestData.action === 'data_exchange') {
+    } else if (requestData.action === 'INIT' || requestData.action === 'data_exchange') {
       const fetchResponse = await fetch(GAS_URL);
       const daftarPegawai = await fetchResponse.json();
 
