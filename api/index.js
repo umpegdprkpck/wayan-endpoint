@@ -85,35 +85,28 @@ module.exports = async function (req, res) {
       const fetchResponse = await fetch(GAS_URL);
       const semuaData = await fetchResponse.json();
 
-      // Kita gunakan Map untuk menyaring nama yang kembar SETELAH dipotong
       const petaUnit = new Map();
 
       semuaData.forEach(item => {
         if (!item.unit_kerja) return;
 
         let titlePendek = item.unit_kerja;
-        
-        // Memotong teks berdasarkan tanda hubung '-'
         const bagianTeks = item.unit_kerja.split('-');
         if (bagianTeks.length >= 2) {
           titlePendek = bagianTeks[1].trim(); 
         }
-        
-        // Amankan jika masih > 80 karakter
         if (titlePendek.length > 80) {
           titlePendek = titlePendek.substring(0, 77) + "...";
         }
 
-        // Masukkan ke dalam peta. Jika nama sudah ada, dia tidak akan diduplikat.
         if (!petaUnit.has(titlePendek)) {
           petaUnit.set(titlePendek, {
-            id: titlePendek, // ID SEKARANG MENGGUNAKAN TEKS PENDEK
-            title: titlePendek
+            id: String(titlePendek), // Paksa jadi String
+            title: String(titlePendek) // Paksa jadi String
           });
         }
       });
 
-      // Ubah kembali peta menjadi format Array yang disukai Meta
       const daftarUnitArray = Array.from(petaUnit.values());
 
       responsePayload = {
@@ -122,7 +115,7 @@ module.exports = async function (req, res) {
         data: { daftar_unit: daftarUnitArray }
       };
     } 
-    // LAYAR 2: FILTER PEGAWAI
+    // LAYAR 2: Saat Tombol Lanjut Ditekan
     else if (requestData.action === 'data_exchange') {
       const isianForm = requestData.data || {};
       
@@ -130,36 +123,33 @@ module.exports = async function (req, res) {
         const fetchResponse = await fetch(GAS_URL);
         const semuaData = await fetchResponse.json();
         
-        // Ini adalah nama Bidang pendek yang baru saja diklik/dipilih oleh user
-        // Saring pegawai khusus untuk unit yang dipilih saja
-const unitPilihan = isianForm.unit_dipilih;
+        const unitPilihan = isianForm.unit_dipilih; 
 
-const pegawaiTersaring = semuaData
-  .filter(item => {
-    if (!item.unit_kerja) return false;
-    let titlePendekPegawai = item.unit_kerja;
-    const bagianTeks = item.unit_kerja.split('-');
-    if (bagianTeks.length >= 2) {
-      titlePendekPegawai = bagianTeks[1].trim();
-    }
-    if (titlePendekPegawai.length > 80) {
-      titlePendekPegawai = titlePendekPegawai.substring(0, 77) + "...";
-    }
-    return titlePendekPegawai === unitPilihan;
-  })
-  .map(item => ({
-    // BAGIAN PENTING: Hanya ambil id dan title, buang unit_kerja
-    id: item.id,
-    title: item.title 
-  }));
+        const pegawaiTersaring = semuaData
+          .filter(item => {
+            if (!item.unit_kerja) return false;
+            let titlePendekPegawai = item.unit_kerja;
+            const bagianTeks = item.unit_kerja.split('-');
+            if (bagianTeks.length >= 2) {
+              titlePendekPegawai = bagianTeks[1].trim();
+            }
+            if (titlePendekPegawai.length > 80) {
+              titlePendekPegawai = titlePendekPegawai.substring(0, 77) + "...";
+            }
+            return titlePendekPegawai === unitPilihan;
+          })
+          .map(item => ({
+            id: String(item.id || item.title), // Paksa jadi string dan buang properti lain
+            title: String(item.title || "Tanpa Nama")
+          }));
 
-responsePayload = {
-  version: flowVersion,
-  screen: 'SCREEN_AKTIVITAS',
-  data: {
-    daftar_pegawai: pegawaiTersaring
-  }
-};
+        responsePayload = {
+          version: flowVersion,
+          screen: 'SCREEN_AKTIVITAS',
+          data: { daftar_pegawai: pegawaiTersaring }
+        };
+      }
+    }
 
     // --- BUNGKUS BALASAN KE META ---
     const flippedIvBuffer = Buffer.alloc(initialVectorBuffer.length);
@@ -168,6 +158,7 @@ responsePayload = {
     }
 
     const cipher = crypto.createCipheriv(aesAlgorithm, decryptedAesKey, flippedIvBuffer);
+    
     let encryptedResponse = cipher.update(JSON.stringify(responsePayload), 'utf-8');
     encryptedResponse = Buffer.concat([encryptedResponse, cipher.final()]);
     const responseAuthTag = cipher.getAuthTag();
@@ -178,9 +169,7 @@ responsePayload = {
     return res.status(200).send(finalCiphertext);
 
   } catch (error) {
-    // INI ADALAH ALARM UTAMA KITA
     console.error("💥 CRASH REPORT:", error.message);
-    if (error.stack) console.error(error.stack);
     return res.status(500).send('Internal Server Error');
   }
 };
