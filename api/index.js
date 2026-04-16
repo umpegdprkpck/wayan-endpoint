@@ -90,7 +90,30 @@ module.exports = async function (req, res) {
 
       // Mengambil daftar Unit Kerja yang unik (tidak dobel)
       const unitUnik = [...new Set(semuaData.map(item => item.unit_kerja))].filter(Boolean);
-      const daftarUnitArray = unitUnik.map(unit => ({ id: unit, title: unit }));
+      
+      const daftarUnitArray = unitUnik.map(unit => {
+        let titlePendek = unit;
+        
+        // Memecah teks berdasarkan tanda hubung '-'
+        const bagianTeks = unit.split('-');
+        
+        // Jika ada lebih dari 1 bagian (ada minimal 1 tanda hubung)
+        if (bagianTeks.length >= 2) {
+          // Ambil bagian indeks ke-1 (teks setelah '-' pertama) dan bersihkan spasinya
+          titlePendek = bagianTeks[1].trim(); 
+        }
+
+        // Fitur Pengaman Tambahan: Jika entah kenapa teksnya masih > 80 karakter,
+        // kita potong paksa dan tambahkan titik-titik agar Meta tidak error.
+        if (titlePendek.length > 80) {
+          titlePendek = titlePendek.substring(0, 77) + "...";
+        }
+
+        return {
+          id: unit,          // ID wajib pakai nama asli utuh untuk modal filter di Layar 2
+          title: titlePendek // Title pakai versi rapi yang sudah dipotong
+        };
+      });
 
       responsePayload = {
         version: flowVersion,
