@@ -76,23 +76,51 @@ module.exports = async function (req, res) {
     const requestData = JSON.parse(decryptedData);
 
     // --- LOGIKA ENDPOINT WAYAN ---
+    // --- LOGIKA ENDPOINT WAYAN ---
     let responsePayload = {};
+    const flowVersion = requestData.version || "3.0";
 
     if (requestData.action === 'ping') {
-      // Wajib bersih sesuai dokumentasi Meta, tanpa atribut tambahan
-      responsePayload = {
-        data: { status: 'active' }
-      };
-    } else if (requestData.action === 'INIT' || requestData.action === 'data_exchange') {
+      responsePayload = { data: { status: 'active' } };
+    } 
+    // LAYAR 1: Saat Form Pertama Kali Dibuka (INIT)
+    else if (requestData.action === 'INIT') {
       const fetchResponse = await fetch(GAS_URL);
-      const daftarPegawai = await fetchResponse.json();
+      const semuaData = await fetchResponse.json();
+
+      // Mengambil daftar Unit Kerja yang unik (tidak dobel)
+      const unitUnik = [...new Set(semuaData.map(item => item.unit_kerja))].filter(Boolean);
+      const daftarUnitArray = unitUnik.map(unit => ({ id: unit, title: unit }));
 
       responsePayload = {
-        screen: 'SCREEN_AKTIVITAS',
+        version: flowVersion,
+        screen: 'SCREEN_PILIH_UNIT',
         data: {
-          daftar_pegawai: Array.isArray(daftarPegawai) ? daftarPegawai : []
+          daftar_unit: daftarUnitArray
         }
       };
+    } 
+    // LAYAR 2: Saat Tombol Lanjut Ditekan
+    else if (requestData.action === 'data_exchange') {
+      // Menangkap data dari tombol Layar 1
+      const isianForm = requestData.data || {};
+      
+      if (isianForm.tahap === 'filter_pegawai') {
+        const fetchResponse = await fetch(GAS_URL);
+        const semuaData = await fetchResponse.json();
+
+        // Saring pegawai khusus untuk unit yang dipilih saja
+        const unitPilihan = isianForm.unit_dipilih;
+        const pegawaiTersaring = semuaData.filter(item => item.unit_kerja === unitPilihan);
+
+        responsePayload = {
+          version: flowVersion,
+          screen: 'SCREEN_AKTIVITAS',
+          data: {
+            daftar_pegawai: pegawaiTersaring
+          }
+        };
+      }
     }
 
     // --- BUNGKUS BALASAN KE META ---
