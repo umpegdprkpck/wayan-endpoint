@@ -57,8 +57,6 @@ module.exports = async function (req, res) {
       Buffer.from(encrypted_aes_key, 'base64')
     );
 
-    // --- DETEKSI OTOMATIS ALGORITMA META ---
-    // Membuat server kebal terhadap perubahan aturan Meta
     const aesAlgorithm = decryptedAesKey.length === 32 ? 'aes-256-gcm' : 'aes-128-gcm';
 
     // --- BACA PESAN META ---
@@ -76,86 +74,75 @@ module.exports = async function (req, res) {
     const requestData = JSON.parse(decryptedData);
 
     // --- LOGIKA ENDPOINT WAYAN ---
-    // --- LOGIKA ENDPOINT WAYAN ---
     let responsePayload = {};
     const flowVersion = requestData.version || "3.0";
 
     if (requestData.action === 'ping') {
       responsePayload = { data: { status: 'active' } };
     } 
-    // LAYAR 1: Saat Form Pertama Kali Dibuka (INIT)
+    // LAYAR 1: INIT
     else if (requestData.action === 'INIT') {
+      console.log("X-RAY: Mulai menarik data dari GAS...");
       const fetchResponse = await fetch(GAS_URL);
-      const semuaData = await fetchResponse.json();
+      const textData = await fetchResponse.text();
+      
+      let semuaData;
+      try {
+        semuaData = JSON.parse(textData);
+      } catch (e) {
+        console.error("X-RAY ERROR: GAS tidak membalas JSON. Balasan GAS:", textData.substring(0, 150));
+        throw new Error("Gagal parsing data Google Sheets.");
+      }
 
-      // Mengambil daftar Unit Kerja yang unik (tidak dobel)
+      if (!Array.isArray(semuaData)) {
+        throw new Error("Data dari GAS bukan format Array/Daftar.");
+      }
+
       const unitUnik = [...new Set(semuaData.map(item => item.unit_kerja))].filter(Boolean);
       
       const daftarUnitArray = unitUnik.map(unit => {
         let titlePendek = unit;
-        
-        // Memecah teks berdasarkan tanda hubung '-'
         const bagianTeks = unit.split('-');
-        
-        // Jika ada lebih dari 1 bagian (ada minimal 1 tanda hubung)
         if (bagianTeks.length >= 2) {
-          // Ambil bagian indeks ke-1 (teks setelah '-' pertama) dan bersihkan spasinya
           titlePendek = bagianTeks[1].trim(); 
         }
-
-        // Fitur Pengaman Tambahan: Jika entah kenapa teksnya masih > 80 karakter,
-        // kita potong paksa dan tambahkan titik-titik agar Meta tidak error.
         if (titlePendek.length > 80) {
           titlePendek = titlePendek.substring(0, 77) + "...";
         }
-
-        return {
-          id: unit,          // ID wajib pakai nama asli utuh untuk modal filter di Layar 2
-          title: titlePendek // Title pakai versi rapi yang sudah dipotong
-        };
+        return { id: unit, title: titlePendek };
       });
 
       responsePayload = {
         version: flowVersion,
         screen: 'SCREEN_PILIH_UNIT',
-        data: {
-          daftar_unit: daftarUnitArray
-        }
+        data: { daftar_unit: daftarUnitArray }
       };
     } 
-    // LAYAR 2: Saat Tombol Lanjut Ditekan
+    // LAYAR 2: FILTER PEGAWAI
     else if (requestData.action === 'data_exchange') {
-      // Menangkap data dari tombol Layar 1
       const isianForm = requestData.data || {};
       
       if (isianForm.tahap === 'filter_pegawai') {
         const fetchResponse = await fetch(GAS_URL);
         const semuaData = await fetchResponse.json();
-
-        // Saring pegawai khusus untuk unit yang dipilih saja
         const unitPilihan = isianForm.unit_dipilih;
         const pegawaiTersaring = semuaData.filter(item => item.unit_kerja === unitPilihan);
 
         responsePayload = {
           version: flowVersion,
           screen: 'SCREEN_AKTIVITAS',
-          data: {
-            daftar_pegawai: pegawaiTersaring
-          }
+          data: { daftar_pegawai: pegawaiTersaring }
         };
       }
     }
 
     // --- BUNGKUS BALASAN KE META ---
-    // BUG FIX: Menggunakan panjang persis dari Meta, tidak mengunci di angka 12
     const flippedIvBuffer = Buffer.alloc(initialVectorBuffer.length);
     for (let i = 0; i < initialVectorBuffer.length; i++) {
       flippedIvBuffer[i] = ~initialVectorBuffer[i] & 0xFF;
     }
 
     const cipher = crypto.createCipheriv(aesAlgorithm, decryptedAesKey, flippedIvBuffer);
-    
-    // Pastikan format teks UTF-8 sangat bersih
     let encryptedResponse = cipher.update(JSON.stringify(responsePayload), 'utf-8');
     encryptedResponse = Buffer.concat([encryptedResponse, cipher.final()]);
     const responseAuthTag = cipher.getAuthTag();
@@ -166,7 +153,9 @@ module.exports = async function (req, res) {
     return res.status(200).send(finalCiphertext);
 
   } catch (error) {
-    console.error("Error Detail:", error.message);
+    // INI ADALAH ALARM UTAMA KITA
+    console.error("💥 CRASH REPORT:", error.message);
+    if (error.stack) console.error(error.stack);
     return res.status(500).send('Internal Server Error');
   }
 };
