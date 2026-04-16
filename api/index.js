@@ -131,7 +131,13 @@ module.exports = async function (req, res) {
             let titlePendek = item.unit_kerja.split('-')[1]?.trim() || item.unit_kerja;
             return titlePendek === unitPilihan;
           })
-          .map(item => ({ id: String(item.id), title: String(item.title) }));
+          .map(item => ({
+  // Wajah Belakang (Disembunyikan): Mengirim NIP dan Nama
+  id: `${item.id}|${item.title}`, 
+  
+  // Wajah Depan (Ditampilkan di HP): HANYA memunculkan Nama saja
+  title: String(item.title || "Tanpa Nama") 
+}));
 
         responsePayload = {
           version: flowVersion,
